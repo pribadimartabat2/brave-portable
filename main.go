@@ -6,15 +6,14 @@ package main
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/portapps/brave-portable/assets"
 	"github.com/portapps/portapps/v3"
+	"github.com/portapps/portapps/v3/pkg/files"
 	"github.com/portapps/portapps/v3/pkg/log"
 	"github.com/portapps/portapps/v3/pkg/registry"
 	"github.com/portapps/portapps/v3/pkg/shortcut"
-	"github.com/portapps/portapps/v3/pkg/utl"
 )
 
 type config struct {
@@ -41,7 +40,9 @@ func init() {
 }
 
 func main() {
-	utl.CreateFolder(app.DataPath)
+	if err := os.MkdirAll(app.DataPath, 0o755); err != nil {
+		log.Fatal().Err(err).Msg("Cannot create data path")
+	}
 	app.Process = filepath.Join(app.AppPath, "brave.exe")
 	app.Args = []string{
 		"--user-data-dir=" + app.DataPath,
@@ -57,15 +58,15 @@ func main() {
 	// Cleanup on exit
 	if cfg.Cleanup {
 		defer func() {
-			utl.Cleanup([]string{
-				path.Join(os.Getenv("APPDATA"), "BraveSoftware"),
-				path.Join(os.Getenv("LOCALAPPDATA"), "BraveSoftware"),
-			})
+			files.Cleanup(
+				filepath.Join(os.Getenv("APPDATA"), "BraveSoftware"),
+				filepath.Join(os.Getenv("LOCALAPPDATA"), "BraveSoftware"),
+			)
 		}()
 	}
 
 	// Copy default shortcut
-	shortcutPath := path.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", "Brave Portable.lnk")
+	shortcutPath := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", "Brave Portable.lnk")
 	defaultShortcut, err := assets.Asset("Brave.lnk")
 	if err != nil {
 		log.Error().Err(err).Msg("Cannot load asset Brave.lnk")
@@ -94,7 +95,10 @@ func main() {
 	}()
 
 	// Registry keys
-	regsPath := utl.CreateFolder(app.RootPath, "reg")
+	regsPath := filepath.Join(app.RootPath, "reg")
+	if err := os.MkdirAll(regsPath, 0o755); err != nil {
+		log.Fatal().Err(err).Msg("Cannot create registry path")
+	}
 	bsRegKey := registry.Key{
 		Key:  `HKCU\SOFTWARE\BraveSoftware`,
 		Arch: "32",
