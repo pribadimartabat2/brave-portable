@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 )
 
+const portableDiagnosticSwitch = "--pamungkas-portability-diagnostic"
+
 type localStateReport struct {
 	HasEncryptedKey           bool   `json:"has_encrypted_key"`
 	HasAppBoundEncryptedKey   bool   `json:"has_app_bound_encrypted_key"`
@@ -26,6 +28,19 @@ type portableProfileReport struct {
 type portableSessionDiagnostic struct {
 	Profile    portableProfileReport `json:"profile"`
 	LocalState localStateReport      `json:"local_state"`
+}
+
+func splitPortableArgs(args []string) ([]string, bool) {
+	browserArgs := make([]string, 0, len(args))
+	diagnostic := false
+	for _, arg := range args {
+		if arg == portableDiagnosticSwitch {
+			diagnostic = true
+			continue
+		}
+		browserArgs = append(browserArgs, arg)
+	}
+	return browserArgs, diagnostic
 }
 
 func analyzeLocalState(path string) (localStateReport, error) {
