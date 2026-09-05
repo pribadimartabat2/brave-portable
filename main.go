@@ -44,6 +44,21 @@ func main() {
 	if err := os.MkdirAll(app.DataPath, 0o755); err != nil {
 		log.Fatal().Err(err).Msg("Cannot create data path")
 	}
+
+	browserArgs, diagnostic := splitPortableArgs(os.Args[1:])
+	if diagnostic {
+		diagnosticsPath := filepath.Join(app.RootPath, "diagnostics")
+		if err := os.MkdirAll(diagnosticsPath, 0o755); err != nil {
+			log.Fatal().Err(err).Msg("Cannot create diagnostics path")
+		}
+		reportPath := filepath.Join(diagnosticsPath, "portable-session.json")
+		if err := writePortableSessionDiagnostic(app.DataPath, reportPath); err != nil {
+			log.Fatal().Err(err).Msg("Cannot write portable session diagnostic")
+		}
+		log.Info().Str("path", reportPath).Msg("Portable session diagnostic written")
+		return
+	}
+
 	app.Process = filepath.Join(app.AppPath, "brave.exe")
 	app.Args = []string{
 		"--user-data-dir=" + app.DataPath,
@@ -130,5 +145,5 @@ func main() {
 	}()
 
 	defer app.Close()
-	app.Launch(os.Args[1:])
+	app.Launch(browserArgs)
 }
