@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,5 +54,46 @@ func TestInspectPortableProfileReportsOnlyPresence(t *testing.T) {
 	}
 	if report.CookieBytesRead != 0 {
 		t.Fatal("diagnostic must not read cookie database contents")
+	}
+}
+
+func TestSplitPortableArgsConsumesDiagnosticSwitch(t *testing.T) {
+	browserArgs, diagnostic := splitPortableArgs([]string{
+		"--incognito",
+		portableDiagnosticSwitch,
+		"https://example.com",
+	})
+	if !diagnostic {
+		t.Fatal("expected diagnostic mode")
+	}
+	if len(browserArgs) != 2 || browserArgs[0] != "--incognito" || browserArgs[1] != "https://example.com" {
+		t.Fatalf("unexpected forwarded browser args: %#v", browserArgs)
+	}
+}
+
+func TestWritePortableSessionDiagnosticNeverSerializesSecretValues(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, "Local State"),
+		[]byte(`{"os_crypt":{"encrypted_key":"SECRET-DPAPI-BLOB","app_bound_encrypted_key":"SECRET-APP-BOUND-BLOB"},"profile":{"last_used":"Default"}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(t.TempDir(), "portable-session.json")
+	if err := writePortableSessionDiagnostic(root, output); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "SECRET-DPAPI-BLOB") || strings.Contains(text, "SECRET-APP-BOUND-BLOB") {
+		t.Fatal("diagnostic serialized an encryption key value")
+	}
+	if !strings.Contains(text, `"has_encrypted_key": true`) || !strings.Contains(text, `"has_app_bound_encrypted_key": true`) {
+		t.Fatalf("expected presence metadata in report: %s", text)
 	}
 }
