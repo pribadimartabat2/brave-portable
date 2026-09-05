@@ -17,10 +17,10 @@ type localStateReport struct {
 }
 
 type portableProfileReport struct {
-	CookieDBPresent      bool `json:"cookie_db_present"`
+	CookieDBPresent       bool `json:"cookie_db_present"`
 	ExtensionsDirPresent bool `json:"extensions_dir_present"`
-	LocalStatePresent     bool `json:"local_state_present"`
-	CookieBytesRead       int  `json:"-"`
+	LocalStatePresent    bool `json:"local_state_present"`
+	CookieBytesRead      int  `json:"-"`
 }
 
 type portableSessionDiagnostic struct {
@@ -66,6 +66,7 @@ func inspectPortableProfile(root string) portableProfileReport {
 			if entry.IsDir() && len(entry.Name()) > len("Profile ") && entry.Name()[:len("Profile ")] == "Profile " {
 				profiles = append(profiles, entry.Name())
 			}
+		}
 	}
 
 	for _, profile := range profiles {
