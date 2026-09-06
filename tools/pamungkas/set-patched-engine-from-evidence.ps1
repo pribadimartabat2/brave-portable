@@ -56,10 +56,9 @@ if (-not (Test-Path -LiteralPath $setter -PathType Leaf)) {
     throw "PAMUNGKAS PACKAGING NO-GO: governed setter is missing: $setter"
 }
 
+# PowerShell script invocation propagates terminating errors directly. Do not
+# inspect $LASTEXITCODE here; that variable is for native process exit codes.
 & $setter -ArtifactUrl $artifactUrl -Sha256 $sha -PropertiesPath $PropertiesPath
-if ($LASTEXITCODE -ne 0) {
-    throw "PAMUNGKAS PACKAGING NO-GO: governed setter failed with exit code $LASTEXITCODE."
-}
 
 Write-Host 'PAMUNGKAS dist-evidence bridge PASS.'
 Write-Host "Evidence: $resolvedEvidence"
