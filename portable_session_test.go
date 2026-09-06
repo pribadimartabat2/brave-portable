@@ -57,6 +57,38 @@ func TestInspectPortableProfileReportsOnlyPresence(t *testing.T) {
 	}
 }
 
+func TestInspectPortableProfileReportsPortableKeyStateWithoutReadingKey(t *testing.T) {
+	root := t.TempDir()
+
+	report := inspectPortableProfile(root)
+	if report.PortableKeyPresent || report.PortableKeySizeValid {
+		t.Fatalf("unexpected portable key state for missing key: %#v", report)
+	}
+
+	keyPath := filepath.Join(root, "Portable Encryption Key")
+	if err := os.WriteFile(keyPath, []byte("bad"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report = inspectPortableProfile(root)
+	if !report.PortableKeyPresent {
+		t.Fatal("expected portable key presence")
+	}
+	if report.PortableKeySizeValid {
+		t.Fatal("malformed portable key must not be reported as size-valid")
+	}
+
+	if err := os.WriteFile(keyPath, make([]byte, 36), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report = inspectPortableProfile(root)
+	if !report.PortableKeyPresent || !report.PortableKeySizeValid {
+		t.Fatalf("expected valid portable key metadata: %#v", report)
+	}
+	if report.PortableKeyBytesRead != 0 {
+		t.Fatal("diagnostic must not read portable key contents")
+	}
+}
+
 func TestSplitPortableArgsConsumesDiagnosticSwitch(t *testing.T) {
 	browserArgs, diagnostic := splitPortableArgs([]string{
 		"--incognito",
