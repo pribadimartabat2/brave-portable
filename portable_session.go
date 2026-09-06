@@ -11,6 +11,7 @@ import (
 
 const portableDiagnosticSwitch = "--pamungkas-portability-diagnostic"
 const portableKeyFileSize = 36
+const portableKeyStateFileSize = 12
 
 type localStateReport struct {
 	HasEncryptedKey           bool   `json:"has_encrypted_key"`
@@ -21,13 +22,15 @@ type localStateReport struct {
 }
 
 type portableProfileReport struct {
-	CookieDBPresent       bool `json:"cookie_db_present"`
-	ExtensionsDirPresent bool `json:"extensions_dir_present"`
-	LocalStatePresent    bool `json:"local_state_present"`
-	PortableKeyPresent   bool `json:"portable_key_present"`
-	PortableKeySizeValid bool `json:"portable_key_size_valid"`
-	CookieBytesRead      int  `json:"-"`
-	PortableKeyBytesRead int  `json:"-"`
+	CookieDBPresent         bool `json:"cookie_db_present"`
+	ExtensionsDirPresent   bool `json:"extensions_dir_present"`
+	LocalStatePresent      bool `json:"local_state_present"`
+	PortableKeyPresent     bool `json:"portable_key_present"`
+	PortableKeySizeValid   bool `json:"portable_key_size_valid"`
+	PortableStatePresent   bool `json:"portable_state_present"`
+	PortableStateSizeValid bool `json:"portable_state_size_valid"`
+	CookieBytesRead        int  `json:"-"`
+	PortableKeyBytesRead   int  `json:"-"`
 }
 
 type portableSessionDiagnostic struct {
@@ -85,13 +88,17 @@ func inspectPortableProfile(root string) portableProfileReport {
 		report.PortableKeySizeValid = info.Mode().IsRegular() && info.Size() == portableKeyFileSize
 	}
 
+	if info, err := os.Stat(filepath.Join(root, "Portable Encryption Key.state")); err == nil {
+		report.PortableStatePresent = true
+		report.PortableStateSizeValid = info.Mode().IsRegular() && info.Size() == portableKeyStateFileSize
+	}
+
 	profiles := []string{"Default"}
 	if entries, err := os.ReadDir(root); err == nil {
 		for _, entry := range entries {
 			if entry.IsDir() && len(entry.Name()) > len("Profile ") && entry.Name()[:len("Profile ")] == "Profile " {
 				profiles = append(profiles, entry.Name())
 			}
-		}
 	}
 
 	for _, profile := range profiles {
@@ -116,6 +123,12 @@ func validatePortableRuntimePostflight(root string) error {
 	}
 	if !report.PortableKeySizeValid {
 		return fmt.Errorf("Portable Encryption Key has invalid metadata; expected a regular %d-byte PBK1 key file", portableKeyFileSize)
+	}
+	if !report.PortableStatePresent {
+		return errors.New("Portable Encryption Key.state was not created; portable key fingerprint state is not verified")
+	}
+	if !report.PortableStateSizeValid {
+		return fmt.Errorf("Portable Encryption Key.state has invalid metadata; expected a regular %d-byte PBS2 state file", portableKeyStateFileSize)
 	}
 	return nil
 }
