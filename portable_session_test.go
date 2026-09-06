@@ -110,6 +110,14 @@ func TestValidatePortableRuntimePostflightRejectsStockOrBrokenEngine(t *testing.
 	if err := os.WriteFile(keyPath, make([]byte, 36), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := validatePortableRuntimePostflight(root); err == nil {
+		t.Fatal("expected missing portable key state fingerprint to fail postflight")
+	}
+
+	statePath := filepath.Join(root, "Portable Encryption Key.state")
+	if err := os.WriteFile(statePath, make([]byte, 12), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := validatePortableRuntimePostflight(root); err != nil {
 		t.Fatalf("expected valid portable runtime postflight: %v", err)
 	}
