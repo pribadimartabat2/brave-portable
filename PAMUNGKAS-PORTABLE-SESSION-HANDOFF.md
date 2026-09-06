@@ -4,198 +4,164 @@
 
 Lifecycle: `EXISTING_PRODUCT_MAINTENANCE`
 
-Primary repository: `pribadimartabat2/brave-portable`
+Repositories:
+- launcher/integration: `pribadimartabat2/brave-portable`
+- Brave engine: `pribadimartabat2/brave-core`
 
-Working branch: `pamungkas/portable-session-root-cause`
+Working branches:
+- `brave-portable`: `pamungkas/portable-session-root-cause`
+- `brave-core`: `pamungkas/portable-oscrypt-poc`
 
-Fallback engine POC: `pribadimartabat2/brave-core`, branch `pamungkas/portable-oscrypt-poc`.
+Goal: native Brave, Chrome Web Store extensions, Brave Shields, and one portable profile whose locally encrypted sessions can move between Windows computers without a VM.
 
-Goal: keep the official/native Brave binary, Chrome-extension compatibility, and one portable profile whose locally encrypted sessions remain decryptable when the same portable media moves between Windows computers.
+Status: **NO-GO for release** until full patched-Brave build and real PC A -> PC B -> PC A evidence pass.
 
-Status remains **NO-GO for release** until real PC A -> PC B -> PC A evidence passes.
+## ROOT CAUSE
 
-## ROOT CAUSE — PROVEN
+Portapps already launches Brave with portable `--user-data-dir`, `--disable-machine-id`, and historical `--disable-encryption-win`.
 
-Portapps already launches Brave with an explicit portable `--user-data-dir`, `--disable-machine-id`, and historical `--disable-encryption-win`.
+Modern Brave/Chromium uses OSCryptAsync. The historical synchronous implementation that made `--disable-encryption-win` portable was removed, so carrying the flag no longer proves that new cookie/session secrets are protected by a machine-independent key.
 
-For Chromium `153.0.8010.28`, which is the Chromium version pinned by the current Brave Core baseline used during this investigation:
+A profile can therefore move correctly while secret material remains tied to the Windows context that created it.
 
-1. App-Bound Encryption is not supported for a command-line-overridden/non-default user-data directory. This means a normal Portapps profile should not use App-Bound v20 for new encryption.
-2. The active Windows provider is therefore primarily DPAPI v10.
-3. `Local State -> os_crypt.encrypted_key` is Base64 of `DPAPI` plus a Windows-DPAPI-wrapped random 32-byte AES-256 master key.
-4. Cookie/password ciphertext uses that master key.
-5. On another Windows context, the DPAPI wrapper cannot be opened.
-6. `os_crypt_async::Init()` treats DPAPI decryption failure as recoverable by generating a **new random 32-byte key and overwriting `os_crypt.encrypted_key`**.
-7. The browser can therefore appear to start normally on PC B while the old cookie/session ciphertext has lost access to its original AES key.
+## CANONICAL FIX
 
-This precisely explains the observed pattern: portable profile files move correctly, but logged-in sessions disappear after moving to another Windows installation.
+### Authority for new encryption — Brave Core
 
-## SMALLEST FIX — PRIMARY PATH
+`pribadimartabat2/brave-core`, branch `pamungkas/portable-oscrypt-poc` adds:
 
-A custom Brave binary is not required for the first proof.
+- custom OSCryptAsync provider prefix `brp1`;
+- 32-byte portable AES-256-GCM key;
+- key file inside the explicit portable user-data directory;
+- provider precedence 20;
+- DPAPI v10 and App-Bound v20 retained for legacy decryption only while portable mode is active;
+- malformed/missing existing portable key fails closed instead of silently generating over corruption;
+- minimal Chromium hook rather than copying BrowserProcessImpl logic.
 
-The launcher can preserve the same Chromium v10 AES master key and only change its Windows DPAPI wrapper for the current computer before Brave starts.
+Portable key file contract:
 
-### Existing profile on original/decrypt-capable PC
+`PBK1` + 32-byte key = exactly 36 bytes.
 
-1. Read only `Local State -> os_crypt.encrypted_key`.
-2. Validate Base64 + `DPAPI` format.
-3. Use Windows `CryptUnprotectData` to recover the exact 32-byte Chromium master key.
-4. Save that master key into the portable security vault.
-5. Do not read or export cookie/password values.
+This `brp1` provider is the authority for **new encrypted data** in portable mode.
 
-### Every later launch
+### Legacy compatibility bridge — launcher
 
-1. Load the portable master key.
-2. Protect the **same key** with the current Windows context using `CryptProtectData`.
-3. Replace only `os_crypt.encrypted_key` with Base64(`DPAPI` + current wrapper).
-4. Write `Local State` through an atomic same-directory replacement.
-5. Verify that current DPAPI immediately decrypts the rewritten key back to the same 32 bytes.
-6. Only then start Brave.
+`internal/portablecrypto` in `brave-portable` remains only as a bounded v10/DPAPI bridge for legacy profiles:
 
-Result expected on PC B: Chromium sees a DPAPI blob it can open locally, but the plaintext AES master key is still exactly the key that encrypted the existing v10 cookies on PC A.
+- captures the old Chromium v10 AES master key on a Windows context that can still decrypt it;
+- re-wraps the same legacy key with DPAPI for the current Windows context;
+- never becomes the authority for new encrypted data;
+- does not solve App-Bound v20 by itself.
 
-## FAIL-CLOSED CONTRACT
+This layer exists to improve legacy migration continuity while `brp1` handles new writes.
 
-A moved profile with no portable vault is dangerous because starting Brave would allow Chromium to generate a replacement master key.
+## FAIL-CLOSED RUNTIME CONTRACT
 
-Therefore:
+The launcher now performs a postflight after Brave exits.
 
-- if `Local State` contains a DPAPI key that the current Windows context cannot decrypt **and no portable vault exists**, the launcher must stop before `app.Launch()`;
-- `Local State` must remain byte-untouched in that failure path;
-- corrupt vaults must never be silently replaced;
-- a vault containing a different key must never be overwritten;
-- master-key values must never be written to logs or diagnostics.
+`validatePortableRuntimePostflight()` requires:
 
-## IMPLEMENTED
+1. `Local State` exists;
+2. `Portable Encryption Key` exists;
+3. the key path is a regular file;
+4. file size is exactly 36 bytes.
 
-### Diagnostic layer
+The diagnostic uses metadata only. It never opens or reads the portable key file.
+
+If postflight fails:
+
+- launcher logs `NO-GO: patched Brave portable OSCrypt runtime was not verified`;
+- legacy key capture is skipped;
+- the run is not treated as proof that portable encryption is active.
+
+This specifically catches a package that accidentally still contains stock Brave: stock Brave will not create the `PBK1` portable key expected from the patched engine.
+
+## SAFE DIAGNOSTIC
 
 `brave-portable.exe --pamungkas-portability-diagnostic`
 
-writes presence-only metadata to `diagnostics/portable-session.json`. It does not serialize cookie contents, password contents, or encryption-key values.
+writes `diagnostics/portable-session.json` with presence-only metadata:
 
-### DPAPI portability layer
+- Local State present;
+- cookie database present;
+- extension directory present;
+- legacy DPAPI/App-Bound metadata present;
+- portable key present;
+- portable key size-valid.
 
-`internal/portablecrypto/dpapi_windows.go`
+It does not serialize cookie values, password values, DPAPI/App-Bound key values, or the portable key contents.
 
-Implements:
+## TEST EVIDENCE
 
-- current-Windows DPAPI protect/unprotect;
-- Chromium `DPAPI` wrapper parsing;
-- 32-byte master-key validation;
-- portable vault creation/load;
-- vault corruption detection using SHA-256;
-- no-overwrite vault semantics;
-- atomic `Local State` replacement with `MoveFileEx(..., REPLACE_EXISTING | WRITE_THROUGH)`;
-- `PrepareProfile()` before browser start;
-- `CaptureProfileKey()` after browser exit.
+Brave Core targeted Windows evidence:
 
-Portable vault format for this POC:
+- portable key creation/reuse contract: PASS;
+- malformed existing key rejection: PASS;
+- PBK1 + 32-byte exact format contract: PASS;
+- Chromium hook applies to pinned Chromium `153.0.8010.28`: PASS;
+- static provider precedence/wrapper/build contract: PASS.
 
-`PDP1` + 32-byte Chromium master key + SHA-256 integrity digest.
+Brave Portable TDD evidence:
 
-The vault intentionally detects corruption but does **not** claim theft resistance. The portable media should be protected by full-volume encryption. A later passphrase-wrapped vault can be added after portability itself is proven.
+- diagnostic presence-only behavior: PASS;
+- portable key metadata test RED then GREEN;
+- stock/broken-engine postflight test RED then GREEN;
+- postflight does not read portable key contents.
 
-### Launcher integration
+GitHub CI may still show unrelated upstream-fork workflow noise. A previous `Compare Chromium versions` failure was proven to occur after reporting an exact Chromium version match because the workflow attempted to remove a label that did not exist. The fork workflow was hardened so label removal is idempotent.
 
-`main.go` now:
+## SECURITY CONTRACT
 
-1. keeps diagnostic mode read-only;
-2. calls `PrepareProfile()` before Brave startup;
-3. blocks startup on foreign/unrecoverable existing profiles without a vault;
-4. allows a genuinely fresh profile to bootstrap normally;
-5. calls `CaptureProfileKey()` after Brave exits to create/verify the portable vault.
+The portable key intentionally travels with the profile. Therefore possession of an unlocked portable drive materially weakens machine-bound theft resistance.
 
-Existing Portapps extension/profile/registry mechanics remain otherwise unchanged.
+Required production posture:
 
-## TDD EVIDENCE
+- use encrypted removable storage/full-volume encryption;
+- never log/export/upload the portable key;
+- never place key bytes in diagnostics;
+- later passphrase-wrapped key storage may be added, but not before the basic cross-PC portability path is proven.
 
-The production implementation was preceded by Windows tests covering:
+## MIGRATION CONTRACT
 
-1. DPAPI protect/unprotect round trip;
-2. portable-vault round trip;
-3. corrupt vault rejection;
-4. Local State rewrite preserves unrelated state and preserves the same AES master key;
-5. existing original-PC profile creates the vault;
-6. existing vault re-wraps the same key;
-7. foreign profile without vault is blocked without mutating Local State;
-8. fresh profile returns bootstrap-needed and captures the key after first-run simulation.
+Fresh profile:
+- new encrypted secrets should use `brp1` immediately.
 
-Latest observed targeted result before launcher integration:
+Existing profile:
+- v10/v20 providers remain available for decryption on a context that can unlock the old data;
+- data decrypted by a non-current provider is expected to be eligible for re-encryption to the current provider;
+- store-wide migration of cookies/passwords must be proven, not assumed;
+- already machine-bound secrets cannot be promised recoverable if the original decrypt-capable context is gone.
 
-- portable DPAPI tests: PASS;
-- portable-session diagnostic tests: PASS;
-- `go vet` portable DPAPI: PASS;
-- `go vet` diagnostics: PASS.
+## PACKAGING TRUTH
 
-Full launcher build after integration must still be confirmed before progressing to package/runtime evidence.
+Current Portapps `build.properties` still downloads the official Brave installer from Brave's S3 URL.
 
-## BRAVE-CORE FALLBACK POC
+Therefore current Portapps packaging **cannot yet be the final portable release**, because it would package stock Brave rather than the patched `brp1` engine.
 
-A deeper `OSCryptAsync` portable provider POC exists in `pribadimartabat2/brave-core` PR #1.
+The final packaging path must consume a Windows binary built from the patched Brave Core branch and must reject accidental fallback to the stock installer.
 
-It adds a custom `brp1` provider while retaining v10/v20 for legacy decryption. Its targeted helper/patch gate passed, including applying the hook against Chromium `153.0.8010.28`.
+## RELEASE GATES
 
-This path is now **fallback only** because the launcher DPAPI re-wrap approach is smaller, retains the official Brave binary, and directly addresses the proven Portapps v10 failure mode.
+Status: `NO-GO`.
 
-Do not merge or release the Brave Core fork unless launcher-only evidence proves insufficient.
+Required before merge/release:
 
-## HARD RUNTIME GATE
+1. full patched Brave Windows compile PASS;
+2. packaged launcher consumes the patched binary, not stock installer;
+3. fresh profile creates `Portable Encryption Key` and launches normally;
+4. postflight PASS;
+5. Chrome Web Store extension installs and remains enabled;
+6. test sessions survive clean shutdown and PC A -> PC B;
+7. return PC B -> PC A remains valid;
+8. existing-profile migration test on original decrypt-capable PC then PC B;
+9. corrupt/missing-key behavior is explicit and non-destructive;
+10. no cookie/password/key contents appear in logs or diagnostics;
+11. FULLPACK/release artifact and checksums produced only after the gates above.
 
-No release-ready claim until tested on two physically distinct Windows contexts.
+## WHAT-NEXT
 
-### PC A
-
-1. Use a dedicated test copy/profile first.
-2. Start through the modified portable launcher.
-3. Confirm `security/portable-dpapi-master.pdp` exists after clean browser exit.
-4. Install a Chrome Web Store extension.
-5. Login to at least two controlled/ordinary sites with persistent cookies.
-6. Close Brave normally and confirm no Brave process remains.
-
-### PC B
-
-1. Move the exact same portable folder/drive.
-2. Start only through the portable launcher.
-3. Confirm startup is not blocked.
-4. Confirm extension remains enabled.
-5. Confirm both controlled test-site sessions remain authenticated without re-login.
-6. Close Brave normally.
-
-### Return to PC A
-
-1. Start through the launcher again.
-2. Confirm sessions still work.
-3. Confirm extension/settings remain intact.
-4. Confirm no Local State/profile corruption.
-
-Google, GitHub and ChatGPT may still perform server-side risk/device verification. That is separate from local cookie decryption. First prove controlled persistent-cookie sessions survive A -> B -> A.
-
-## NON-REGRESSION
-
-Must preserve:
-
-- official Brave binary;
-- Brave Shields;
-- Chrome Web Store extensions;
-- portable `user-data-dir`;
-- Portapps registry import/export;
-- diagnostic mode without mutation;
-- normal clean shutdown/profile flush;
-- existing Portapps package/update mechanics unless a bounded packaging change is proven necessary.
-
-## CURRENT RELEASE STATUS
-
-`NO-GO`.
-
-Required next evidence:
-
-1. full Go launcher build PASS after DPAPI integration;
-2. Portapps package build PASS;
-3. fresh-profile bootstrap runtime PASS;
-4. original existing-profile vault capture PASS;
-5. real PC A -> PC B -> PC A session retention PASS;
-6. Chrome extension non-regression PASS;
-7. corrupt/missing-vault failure behavior PASS;
-8. only after those gates, prepare a user-test artifact and release/checksum set.
+1. Establish the canonical Windows build workspace for patched Brave Core.
+2. Produce the first patched Brave Windows binary.
+3. Change Portapps packaging to consume that binary with a hard anti-stock gate.
+4. Execute PC A -> PC B -> PC A test matrix.
+5. Only then prepare release artifacts.
