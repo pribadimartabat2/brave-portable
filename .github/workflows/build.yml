@@ -17,7 +17,41 @@ on:
   pull_request:
 
 jobs:
+  patched-engine-authority:
+    name: PAMUNGKAS patched-engine authority
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Reject stock Brave packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_url="$(sed -n 's/^atf\.win64\.url[[:space:]]*=[[:space:]]*//p' build.properties | tail -n1)"
+          if [[ -z "$artifact_url" ]]; then
+            echo '::error::PAMUNGKAS PACKAGING NO-GO: atf.win64.url is missing.'
+            exit 1
+          fi
+
+          allowed_prefix='https://github.com/pribadimartabat2/brave-core/releases/download/'
+          if [[ "$artifact_url" != "$allowed_prefix"* ]]; then
+            echo "::error::PAMUNGKAS PACKAGING NO-GO: Brave artifact is not from the governed patched-engine release path."
+            echo "Configured source: $artifact_url"
+            echo "Required prefix: $allowed_prefix"
+            exit 1
+          fi
+
+          if grep -Fq 'brave-browser-downloads.s3.brave.com' build.properties; then
+            echo '::error::PAMUNGKAS PACKAGING NO-GO: stock Brave S3 source remains configured.'
+            exit 1
+          fi
+
+          echo 'PAMUNGKAS patched-engine source gate PASS.'
+
   build:
+    needs: patched-engine-authority
     uses: portapps/.github/.github/workflows/app-build.yml@3b19d5c32283b0cd19affa9864488daaeeb5feac # v1.3.0
     permissions:
       contents: write # required to create a GitHub release on push with a tag
