@@ -9,6 +9,7 @@ import (
 )
 
 const portableDiagnosticSwitch = "--pamungkas-portability-diagnostic"
+const portableKeyFileSize = 36
 
 type localStateReport struct {
 	HasEncryptedKey           bool   `json:"has_encrypted_key"`
@@ -22,7 +23,10 @@ type portableProfileReport struct {
 	CookieDBPresent       bool `json:"cookie_db_present"`
 	ExtensionsDirPresent bool `json:"extensions_dir_present"`
 	LocalStatePresent    bool `json:"local_state_present"`
+	PortableKeyPresent   bool `json:"portable_key_present"`
+	PortableKeySizeValid bool `json:"portable_key_size_valid"`
 	CookieBytesRead      int  `json:"-"`
+	PortableKeyBytesRead int  `json:"-"`
 }
 
 type portableSessionDiagnostic struct {
@@ -73,6 +77,11 @@ func inspectPortableProfile(root string) portableProfileReport {
 
 	if _, err := os.Stat(filepath.Join(root, "Local State")); err == nil {
 		report.LocalStatePresent = true
+	}
+
+	if info, err := os.Stat(filepath.Join(root, "Portable Encryption Key")); err == nil {
+		report.PortableKeyPresent = true
+		report.PortableKeySizeValid = info.Mode().IsRegular() && info.Size() == portableKeyFileSize
 	}
 
 	profiles := []string{"Default"}
