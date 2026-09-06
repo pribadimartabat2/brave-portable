@@ -36,11 +36,15 @@ A profile can therefore move correctly while secret material remains tied to the
 - provider precedence 20;
 - DPAPI v10 and App-Bound v20 retained for legacy decryption only while portable mode is active;
 - malformed/missing existing portable key fails closed instead of silently generating over corruption;
+- portable initialization state is bound to the key via PBS2 fingerprint state;
 - minimal Chromium hook rather than copying BrowserProcessImpl logic.
 
-Portable key file contract:
+Portable key contracts:
 
-`PBK1` + 32-byte key = exactly 36 bytes.
+- `Portable Encryption Key`: `PBK1` + 32-byte key = exactly 36 bytes;
+- `Portable Encryption Key.state`: `PBS2` + 8-byte fingerprint = exactly 12 bytes.
+
+The PBS2 state makes accidental same-size key replacement detectable by the engine. The launcher checks only metadata; the engine remains authority for fingerprint validation.
 
 This `brp1` provider is the authority for **new encrypted data** in portable mode.
 
@@ -57,24 +61,25 @@ This layer exists to improve legacy migration continuity while `brp1` handles ne
 
 ## FAIL-CLOSED RUNTIME CONTRACT
 
-The launcher now performs a postflight after Brave exits.
+The launcher performs a postflight after Brave exits.
 
 `validatePortableRuntimePostflight()` requires:
 
 1. `Local State` exists;
 2. `Portable Encryption Key` exists;
-3. the key path is a regular file;
-4. file size is exactly 36 bytes.
+3. key path is a regular 36-byte PBK1 file;
+4. `Portable Encryption Key.state` exists;
+5. state path is a regular 12-byte PBS2 file.
 
-The diagnostic uses metadata only. It never opens or reads the portable key file.
+The launcher diagnostic checks metadata only. It does not open/read the key or state fingerprint contents.
 
 If postflight fails:
 
-- launcher logs `NO-GO: patched Brave portable OSCrypt runtime was not verified`;
+- launcher reports patched portable OSCrypt runtime as NO-GO;
 - legacy key capture is skipped;
 - the run is not treated as proof that portable encryption is active.
 
-This specifically catches a package that accidentally still contains stock Brave: stock Brave will not create the `PBK1` portable key expected from the patched engine.
+This catches accidental packaging of stock Brave because stock Brave does not create the PBK1/PBS2 artifacts expected from the patched engine.
 
 ## SAFE DIAGNOSTIC
 
@@ -86,10 +91,10 @@ writes `diagnostics/portable-session.json` with presence-only metadata:
 - cookie database present;
 - extension directory present;
 - legacy DPAPI/App-Bound metadata present;
-- portable key present;
-- portable key size-valid.
+- portable key present/size-valid;
+- portable state present/size-valid.
 
-It does not serialize cookie values, password values, DPAPI/App-Bound key values, or the portable key contents.
+It does not serialize cookie values, password values, DPAPI/App-Bound key values, portable key contents, or fingerprint contents.
 
 ## TEST EVIDENCE
 
@@ -97,18 +102,22 @@ Brave Core targeted Windows evidence:
 
 - portable key creation/reuse contract: PASS;
 - malformed existing key rejection: PASS;
-- PBK1 + 32-byte exact format contract: PASS;
-- Chromium hook applies to pinned Chromium `153.0.8010.28`: PASS;
-- static provider precedence/wrapper/build contract: PASS.
+- missing initialized key fail-closed: PASS;
+- corrected hidden-file mutation test proves presence-only state is insufficient: RED at core commit `7c94d8150b83a8cd07c00a37657c93ba777ec78e`;
+- PBS2 fingerprint implementation has previously passed the corrected mutation test; current restored-head CI must remain PASS before release claims;
+- Chromium hook applies to pinned Chromium `153.0.8010.28`;
+- static provider precedence/wrapper/build contract is checked.
 
 Brave Portable TDD evidence:
 
+- state-required postflight RED: commit `460449fd21a89697c87fcb69d95a3789c64cc795`, expected failure because a 36-byte key without state was still accepted;
+- state-required postflight implementation: commit `4ff6176159a10c914e26ab0eb082b2d461ca26f2`;
+- syntax defect isolated and fixed at commit `1e4259c5f52d08c741a491998ef3244119813148`;
+- targeted `pamungkas-portable-session` CI on `1e4259c5...`: PASS;
 - diagnostic presence-only behavior: PASS;
-- portable key metadata test RED then GREEN;
-- stock/broken-engine postflight test RED then GREEN;
-- postflight does not read portable key contents.
+- v10 legacy portablecrypto module: PASS.
 
-GitHub CI may still show unrelated upstream-fork workflow noise. A previous `Compare Chromium versions` failure was proven to occur after reporting an exact Chromium version match because the workflow attempted to remove a label that did not exist. The fork workflow was hardened so label removal is idempotent.
+An earlier upstream-fork `Compare Chromium versions` failure was proven unrelated to the browser code: versions matched exactly, but label removal failed when the label did not exist. Branch workflow cleanup is now idempotent.
 
 ## SECURITY CONTRACT
 
@@ -118,7 +127,7 @@ Required production posture:
 
 - use encrypted removable storage/full-volume encryption;
 - never log/export/upload the portable key;
-- never place key bytes in diagnostics;
+- never place key or fingerprint bytes in diagnostics;
 - later passphrase-wrapped key storage may be added, but not before the basic cross-PC portability path is proven.
 
 ## MIGRATION CONTRACT
@@ -146,22 +155,24 @@ Status: `NO-GO`.
 
 Required before merge/release:
 
-1. full patched Brave Windows compile PASS;
-2. packaged launcher consumes the patched binary, not stock installer;
-3. fresh profile creates `Portable Encryption Key` and launches normally;
-4. postflight PASS;
-5. Chrome Web Store extension installs and remains enabled;
-6. test sessions survive clean shutdown and PC A -> PC B;
-7. return PC B -> PC A remains valid;
-8. existing-profile migration test on original decrypt-capable PC then PC B;
-9. corrupt/missing-key behavior is explicit and non-destructive;
-10. no cookie/password/key contents appear in logs or diagnostics;
-11. FULLPACK/release artifact and checksums produced only after the gates above.
+1. current-head targeted CI PASS in both repos;
+2. full patched Brave Windows `Release` compile PASS;
+3. packaged launcher consumes patched binary, not stock installer;
+4. fresh profile creates valid PBK1 + PBS2 artifacts and launches normally;
+5. launcher postflight PASS;
+6. Chrome Web Store extension installs and remains enabled;
+7. test sessions survive clean shutdown and PC A -> PC B;
+8. return PC B -> PC A remains valid;
+9. existing-profile migration test on original decrypt-capable PC then PC B;
+10. corrupt/missing/replaced-key behavior is explicit and non-destructive;
+11. no cookie/password/key/fingerprint contents appear in logs or diagnostics;
+12. FULLPACK/release artifact and checksums produced only after the gates above.
 
 ## WHAT-NEXT
 
-1. Establish the canonical Windows build workspace for patched Brave Core.
-2. Produce the first patched Brave Windows binary.
-3. Change Portapps packaging to consume that binary with a hard anti-stock gate.
-4. Execute PC A -> PC B -> PC A test matrix.
-5. Only then prepare release artifacts.
+1. Observe current restored PBS2 core CI PASS.
+2. Use `tools/pamungkas/windows-build.ps1 -CheckOnly` in a real Windows build workspace with sufficient disk.
+3. Run the first full patched Brave Windows `Release` build.
+4. Change Portapps packaging to consume that binary with a hard anti-stock gate.
+5. Execute PC A -> PC B -> PC A test matrix.
+6. Only then prepare release artifacts.
