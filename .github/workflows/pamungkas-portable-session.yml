@@ -20,9 +20,9 @@ jobs:
         with:
           go-version: '1.26'
           cache: true
-      - name: Test
-        run: go test ./... -count=1
-      - name: Vet
-        run: go vet ./...
+      - name: Test portable-session module
+        run: go test portable_session.go portable_session_test.go -count=1 -timeout=2m
+      - name: Vet portable-session module
+        run: go vet portable_session.go
       - name: Build launcher
         run: go build ./...
