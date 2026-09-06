@@ -20,9 +20,13 @@ jobs:
         with:
           go-version: '1.26'
           cache: true
-      - name: Test portable-session module
+      - name: Test portable DPAPI module
+        run: go test ./internal/portablecrypto -count=1 -timeout=2m
+      - name: Test portable-session diagnostics
         run: go test portable_session.go portable_session_test.go -count=1 -timeout=2m
-      - name: Vet portable-session module
+      - name: Vet portable DPAPI module
+        run: go vet ./internal/portablecrypto
+      - name: Vet portable-session diagnostics
         run: go vet portable_session.go
       - name: Build launcher
         run: go build ./...
