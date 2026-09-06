@@ -24,6 +24,9 @@ jobs:
         run: go test ./internal/portablecrypto -count=1 -timeout=2m
       - name: Test portable-session diagnostics
         run: go test portable_session.go portable_session_test.go -count=1 -timeout=2m
+      - name: Test patched-engine configuration contract
+        shell: pwsh
+        run: ./tools/pamungkas/set-patched-engine_test.ps1
       - name: Vet portable DPAPI module
         run: go vet ./internal/portablecrypto
       - name: Vet portable-session diagnostics
