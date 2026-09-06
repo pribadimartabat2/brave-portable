@@ -66,9 +66,9 @@ func main() {
 		log.Fatal().Err(err).Msg("Portable session preparation failed; Brave was not started to protect existing sessions")
 	}
 	if prepareStatus == portablecrypto.StatusBootstrapNeeded {
-		log.Info().Msg("Portable session vault will be captured after the first clean Brave exit")
+		log.Info().Msg("Legacy DPAPI bridge will be captured after the first clean Brave exit")
 	} else {
-		log.Info().Msg("Portable session master key prepared for this Windows context")
+		log.Info().Msg("Legacy DPAPI bridge prepared for this Windows context")
 	}
 
 	app.Process = filepath.Join(app.AppPath, "brave.exe")
@@ -159,9 +159,15 @@ func main() {
 	defer app.Close()
 	app.Launch(browserArgs)
 
+	if err := validatePortableRuntimePostflight(app.DataPath); err != nil {
+		log.Error().Err(err).Msg("NO-GO: patched Brave portable OSCrypt runtime was not verified; legacy key capture skipped")
+		return
+	}
+	log.Info().Msg("Patched Brave portable OSCrypt runtime verified")
+
 	if err := portablecrypto.CaptureProfileKey(app.DataPath, securityPath); err != nil {
-		log.Error().Err(err).Msg("Portable session master key could not be captured or verified after Brave exit")
+		log.Error().Err(err).Msg("Legacy DPAPI bridge could not be captured or verified after Brave exit")
 	} else {
-		log.Info().Msg("Portable session master key captured or verified")
+		log.Info().Msg("Legacy DPAPI bridge captured or verified")
 	}
 }
