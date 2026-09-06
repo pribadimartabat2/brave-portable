@@ -27,6 +27,9 @@ jobs:
       - name: Test patched-engine configuration contract
         shell: pwsh
         run: ./tools/pamungkas/set-patched-engine_test.ps1
+      - name: Test patched-engine evidence bridge
+        shell: pwsh
+        run: ./tools/pamungkas/set-patched-engine-from-evidence_test.ps1
       - name: Vet portable DPAPI module
         run: go vet ./internal/portablecrypto
       - name: Vet portable-session diagnostics
