@@ -89,6 +89,32 @@ func TestInspectPortableProfileReportsPortableKeyStateWithoutReadingKey(t *testi
 	}
 }
 
+func TestValidatePortableRuntimePostflightRejectsStockOrBrokenEngine(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Local State"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validatePortableRuntimePostflight(root); err == nil {
+		t.Fatal("expected missing portable key to fail postflight")
+	}
+
+	keyPath := filepath.Join(root, "Portable Encryption Key")
+	if err := os.WriteFile(keyPath, []byte("bad"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePortableRuntimePostflight(root); err == nil {
+		t.Fatal("expected malformed portable key to fail postflight")
+	}
+
+	if err := os.WriteFile(keyPath, make([]byte, 36), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePortableRuntimePostflight(root); err != nil {
+		t.Fatalf("expected valid portable runtime postflight: %v", err)
+	}
+}
+
 func TestSplitPortableArgsConsumesDiagnosticSwitch(t *testing.T) {
 	browserArgs, diagnostic := splitPortableArgs([]string{
 		"--incognito",
