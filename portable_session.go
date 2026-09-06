@@ -99,6 +99,7 @@ func inspectPortableProfile(root string) portableProfileReport {
 			if entry.IsDir() && len(entry.Name()) > len("Profile ") && entry.Name()[:len("Profile ")] == "Profile " {
 				profiles = append(profiles, entry.Name())
 			}
+		}
 	}
 
 	for _, profile := range profiles {
