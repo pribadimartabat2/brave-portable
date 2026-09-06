@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -103,6 +104,20 @@ func inspectPortableProfile(root string) portableProfileReport {
 	}
 
 	return report
+}
+
+func validatePortableRuntimePostflight(root string) error {
+	report := inspectPortableProfile(root)
+	if !report.LocalStatePresent {
+		return errors.New("Brave did not create Local State; portable runtime activation cannot be verified")
+	}
+	if !report.PortableKeyPresent {
+		return errors.New("Portable Encryption Key was not created; patched Brave OSCrypt provider is not verified")
+	}
+	if !report.PortableKeySizeValid {
+		return fmt.Errorf("Portable Encryption Key has invalid metadata; expected a regular %d-byte PBK1 key file", portableKeyFileSize)
+	}
+	return nil
 }
 
 func writePortableSessionDiagnostic(root, output string) error {
