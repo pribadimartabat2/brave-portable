@@ -4,7 +4,7 @@
   <a href="https://portapps.io/app/brave-portable/#download"><img src="https://img.shields.io/github/release/portapps/brave-portable.svg?style=flat-square" alt="GitHub release"></a>
   <a href="https://portapps.io/app/brave-portable/#download"><img src="https://img.shields.io/github/downloads/portapps/brave-portable/total.svg?style=flat-square" alt="Total downloads"></a>
   <a href="https://github.com/portapps/brave-portable/actions?workflow=build"><img src="https://img.shields.io/github/actions/workflow/status/portapps/brave-portable/build.yml?label=build&logo=github&style=flat-square" alt="Build Status"></a>
-  <br /><a href="https://github.com/sponsors/crazy-max"><img src="https://img.shields.io/badge/sponsor-crazy--max-181717.svg?logo=github&style=flat-square" alt="Become a sponsor"></a>
+  <br /><a href="https://github.com/sponsors/crazy-max"><img src="https://img.shields.io/badge/sponsor-crazy--max-181717.svg?logo=github&style=flat-square" alt="Become a sponsor on GitHub"></a>
   <a href="https://www.paypal.me/crazyws"><img src="https://img.shields.io/badge/donate-paypal-00457c.svg?logo=paypal&style=flat-square" alt="Donate Paypal"></a>
 </p>
 
@@ -20,6 +20,20 @@ The name Brave™ as well as related names, marks, emblems and images are regist
 
 Brave™ portable app made with 🚀 [Portapps](https://github.com/portapps).<br />
 Documentation and downloads can be found on https://portapps.io/app/brave-portable/
+
+## PAMUNGKAS portability investigation
+
+This fork carries an isolated, non-release investigation for cross-machine Windows profile portability. See [`PAMUNGKAS-PORTABILITY-HANDOFF.md`](PAMUNGKAS-PORTABILITY-HANDOFF.md) before changing portable-session behavior.
+
+The current diagnostic mode is privacy-safe and does not export cookie, password, token, or encryption-key values:
+
+```text
+brave-portable.exe --pamungkas-portability-diagnostic
+```
+
+It writes presence-only metadata to `diagnostics/portable-session.json` and exits without launching Brave.
+
+The investigation remains **NO-GO for release/merge** until the Brave-core OSCryptAsync fix and PC A -> PC B -> PC A runtime gate pass.
 
 ## Contributing
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/portapps/brave-portable/internal/portablecrypto"
 	"github.com/portapps/portapps/v3"
 	"github.com/portapps/portapps/v3/pkg/files"
 	"github.com/portapps/portapps/v3/pkg/log"
@@ -44,6 +45,32 @@ func main() {
 	if err := os.MkdirAll(app.DataPath, 0o755); err != nil {
 		log.Fatal().Err(err).Msg("Cannot create data path")
 	}
+
+	browserArgs, diagnostic := splitPortableArgs(os.Args[1:])
+	if diagnostic {
+		diagnosticsPath := filepath.Join(app.RootPath, "diagnostics")
+		if err := os.MkdirAll(diagnosticsPath, 0o755); err != nil {
+			log.Fatal().Err(err).Msg("Cannot create diagnostics path")
+		}
+		reportPath := filepath.Join(diagnosticsPath, "portable-session.json")
+		if err := writePortableSessionDiagnostic(app.DataPath, reportPath); err != nil {
+			log.Fatal().Err(err).Msg("Cannot write portable session diagnostic")
+		}
+		log.Info().Str("path", reportPath).Msg("Portable session diagnostic written")
+		return
+	}
+
+	securityPath := filepath.Join(app.RootPath, "security")
+	prepareStatus, err := portablecrypto.PrepareProfile(app.DataPath, securityPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Portable session preparation failed; Brave was not started to protect existing sessions")
+	}
+	if prepareStatus == portablecrypto.StatusBootstrapNeeded {
+		log.Info().Msg("Legacy DPAPI bridge will be captured after the first clean Brave exit")
+	} else {
+		log.Info().Msg("Legacy DPAPI bridge prepared for this Windows context")
+	}
+
 	app.Process = filepath.Join(app.AppPath, "brave.exe")
 	app.Args = []string{
 		"--user-data-dir=" + app.DataPath,
@@ -68,7 +95,7 @@ func main() {
 
 	// Copy default shortcut
 	shortcutPath := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", "Brave Portable.lnk")
-	err := os.WriteFile(shortcutPath, defaultShortcut, 0644)
+	err = os.WriteFile(shortcutPath, defaultShortcut, 0644)
 	if err != nil {
 		log.Error().Err(err).Msg("Cannot write default shortcut")
 	}
@@ -130,5 +157,17 @@ func main() {
 	}()
 
 	defer app.Close()
-	app.Launch(os.Args[1:])
+	app.Launch(browserArgs)
+
+	if err := validatePortableRuntimePostflight(app.DataPath); err != nil {
+		log.Error().Err(err).Msg("NO-GO: patched Brave portable OSCrypt runtime was not verified; legacy key capture skipped")
+		return
+	}
+	log.Info().Msg("Patched Brave portable OSCrypt runtime verified")
+
+	if err := portablecrypto.CaptureProfileKey(app.DataPath, securityPath); err != nil {
+		log.Error().Err(err).Msg("Legacy DPAPI bridge could not be captured or verified after Brave exit")
+	} else {
+		log.Info().Msg("Legacy DPAPI bridge captured or verified")
+	}
 }

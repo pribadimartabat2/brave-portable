@@ -1,0 +1,38 @@
+name: pamungkas-portable-session
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'pamungkas/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Test portable DPAPI module
+        run: go test ./internal/portablecrypto -count=1 -timeout=2m
+      - name: Test portable-session diagnostics
+        run: go test portable_session.go portable_session_test.go -count=1 -timeout=2m
+      - name: Test patched-engine configuration contract
+        shell: pwsh
+        run: ./tools/pamungkas/set-patched-engine_test.ps1
+      - name: Test patched-engine evidence bridge
+        shell: pwsh
+        run: ./tools/pamungkas/set-patched-engine-from-evidence_test.ps1
+      - name: Vet portable DPAPI module
+        run: go vet ./internal/portablecrypto
+      - name: Vet portable-session diagnostics
+        run: go vet portable_session.go
+      - name: Build launcher
+        run: go build ./...
