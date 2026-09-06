@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/portapps/brave-portable/internal/portablecrypto"
 	"github.com/portapps/portapps/v3"
 	"github.com/portapps/portapps/v3/pkg/files"
 	"github.com/portapps/portapps/v3/pkg/log"
@@ -59,6 +60,17 @@ func main() {
 		return
 	}
 
+	securityPath := filepath.Join(app.RootPath, "security")
+	prepareStatus, err := portablecrypto.PrepareProfile(app.DataPath, securityPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Portable session preparation failed; Brave was not started to protect existing sessions")
+	}
+	if prepareStatus == portablecrypto.StatusBootstrapNeeded {
+		log.Info().Msg("Portable session vault will be captured after the first clean Brave exit")
+	} else {
+		log.Info().Msg("Portable session master key prepared for this Windows context")
+	}
+
 	app.Process = filepath.Join(app.AppPath, "brave.exe")
 	app.Args = []string{
 		"--user-data-dir=" + app.DataPath,
@@ -83,7 +95,7 @@ func main() {
 
 	// Copy default shortcut
 	shortcutPath := filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", "Brave Portable.lnk")
-	err := os.WriteFile(shortcutPath, defaultShortcut, 0644)
+	err = os.WriteFile(shortcutPath, defaultShortcut, 0644)
 	if err != nil {
 		log.Error().Err(err).Msg("Cannot write default shortcut")
 	}
@@ -146,4 +158,10 @@ func main() {
 
 	defer app.Close()
 	app.Launch(browserArgs)
+
+	if err := portablecrypto.CaptureProfileKey(app.DataPath, securityPath); err != nil {
+		log.Error().Err(err).Msg("Portable session master key could not be captured or verified after Brave exit")
+	} else {
+		log.Info().Msg("Portable session master key captured or verified")
+	}
 }
